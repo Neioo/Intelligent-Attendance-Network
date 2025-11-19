@@ -1,21 +1,19 @@
+streamlit==1.51.0
+numpy==1.26.4
+pandas==2.2.2
 
-streamlit
-numpy
-pandas
-
-# OpenCV (headless in Linux, normal on Windows)
-opencv-python-headless
+# OpenCV: headless only on cloud
+opencv-python-headless==4.9.0.80
 
 # Face recognition
-deepface
+deepface==0.0.93
 
 # YOLO
-ultralytics
+ultralytics==8.3.228
 
-pillow
-scipy
+pillow==10.3.0
+scipy==1.14.1
 
-torch
-torchvision
-
-
+# CPU builds with wheels on py3.10
+torch==2.4.1
+torchvision==0.19.1
