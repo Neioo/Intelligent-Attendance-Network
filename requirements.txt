@@ -3,8 +3,9 @@ streamlit==1.51.0
 numpy==1.26.4
 pandas==2.2.2
 
-# CRITICAL: Install headless opencv FIRST to prevent conflicts
-opencv-python-headless==4.10.0.84
+# OpenCV (headless in Linux, normal on Windows)
+opencv-python-headless==4.9.0.80 ; platform_system != "Windows"
+opencv-python==4.9.0.80 ; platform_system == "Windows"
 
 # Face recognition
 deepface==0.0.93
@@ -15,5 +16,7 @@ ultralytics==8.3.228
 # Supporting libraries
 pillow==10.3.0
 scipy==1.14.1
+
+# Let uv pick CPU builds appropriate for the platform
 torch
 torchvision
