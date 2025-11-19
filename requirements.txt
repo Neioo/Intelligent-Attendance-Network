@@ -1,29 +1,7 @@
-# --- Streamlit app ---
-streamlit==1.51.0
-
-# --- Core scientific stack ---
-numpy==1.26.4
-pandas==2.2.2
-pillow==10.3.0
-scipy==1.14.1
-
-# --- Computer vision ---
-opencv-python-headless==4.9.0.80
-
-# --- Models ---
-ultralytics==8.3.228
-deepface==0.0.93
-
-# DeepFace/RetinaFace needs TF >=2.16; with 2.20 use tf-keras shim
-tensorflow==2.20.0
-tf-keras==2.20.0
-
-# PyTorch CPU wheels for py3.10
-torch==2.4.1
-torchvision==0.19.1
-
-# --- Live video via WebRTC (browser camera) ---
-streamlit-webrtc==0.47.7
-aiortc==1.9.0
-av==10.0.0
-
+streamlit-webrtc
+av
+opencv-python-headless
+ultralytics
+deepface
+pandas
+numpy
