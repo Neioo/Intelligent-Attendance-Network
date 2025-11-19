@@ -181,9 +181,9 @@ class AttendanceProcessor:
             res = DET(
                 img,
                 conf=0.20,        # lower conf → more boxes found
-                iou=0.70,         # keep more overlapping faces
-                imgsz=960,        # bigger net input → small faces show up
-                max_det=50,       # allow many faces
+                iou=0.40,         # keep more overlapping faces
+                imgsz=640,        # bigger net input → small faces show up
+                max_det=10,       # allow many faces
                 verbose=False,
             )[0]
             self.last_results = res.boxes if (res is not None and res.boxes is not None) else None
@@ -282,4 +282,5 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
