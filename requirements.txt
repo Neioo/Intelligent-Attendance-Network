@@ -1,22 +1,20 @@
-# Core dependencies
-streamlit==1.51.0
-numpy==1.26.4
-pandas==2.2.2
+
+streamlit
+numpy
+pandas
 
 # OpenCV (headless in Linux, normal on Windows)
-opencv-python-headless==4.9.0.80 ; platform_system != "Windows"
-opencv-python==4.9.0.80 ; platform_system == "Windows"
+opencv-python-headless
 
 # Face recognition
-deepface==0.0.93
+deepface
 
 # YOLO
-ultralytics==8.3.228
+ultralytics
 
-# Supporting libraries
 pillow==10.3.0
 scipy==1.14.1
 
-# Let uv pick CPU builds appropriate for the platform
 torch
 torchvision
+
