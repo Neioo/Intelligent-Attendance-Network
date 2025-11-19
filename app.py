@@ -5,7 +5,20 @@ import pandas as pd    # <-- added
 from ultralytics import YOLO
 from deepface import DeepFace
 from pathlib import Path
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+import streamlit as st
+
+st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
+
+# Safe import so the app doesn't crash while deps are still installing
+try:
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+    import av
+    WEBRTC_OK = True
+except Exception as e:
+    WEBRTC_OK = False
+    st.info("WebRTC not ready yet. If this is the first boot after changing requirements, "
+            "wait for dependencies to finish installing and then click 'Rerun'.")
+
 
 st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
 frame_ph = st.empty()
