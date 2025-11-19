@@ -21,7 +21,7 @@ PAD        = 0.0
 MIN_BOX    = 60
 
 # Run detector every N frames (0 = every frame)
-FRAME_SKIP = 2        # try 2; increase if CPU is slow
+FRAME_SKIP = 4        # try 2; increase if CPU is slow
 skip_mod   = FRAME_SKIP + 1
 
 # ---- ArcFace k-NN params ----
@@ -282,5 +282,6 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
 
