@@ -22,8 +22,10 @@ torch==2.4.1
 torchvision==0.19.1
 
 streamlit-webrtc==0.47.7
-av==10.0.0
-aiortc==1.9.0
+av==9.2.0
+aiortc==1.6.0
+
+
 
 
 
