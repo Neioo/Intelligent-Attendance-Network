@@ -21,9 +21,6 @@ scipy==1.14.1
 torch==2.4.1
 torchvision==0.19.1
 
-streamlit-webrtc==0.47.7
-av==9.2.0
-aiortc==1.6.0
 
 
 
