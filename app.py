@@ -5,24 +5,6 @@ import pandas as pd    # <-- added
 from ultralytics import YOLO
 from deepface import DeepFace
 from pathlib import Path
-import streamlit as st
-
-st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
-
-# Safe import so the app doesn't crash while deps are still installing
-try:
-    from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
-    import av
-    WEBRTC_OK = True
-except Exception as e:
-    WEBRTC_OK = False
-    st.info("WebRTC not ready yet. If this is the first boot after changing requirements, "
-            "wait for dependencies to finish installing and then click 'Rerun'.")
-
-
-st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
-frame_ph = st.empty()
-
 
 ROOT = Path(__file__).resolve().parent
 YOLO_WEIGHTS = str(ROOT / "yolov8s-face-lindevs.pt")
@@ -45,7 +27,7 @@ CLASS_MINSUM = 0.50
 # ---- Attendance logging params ----
 MIN_GAP_SECONDS = 10  # minimum seconds between logs for same person (no longer used)
 
-
+st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
 st.title("🎥 CCS Events Attendance Checker ")
 
 # ====== LOAD GALLERY ======
@@ -184,75 +166,86 @@ if st.button("Reset logs"):
 frame_ph = st.empty()
 
 # Open camera if starting
+if st.session_state.run and "cap" not in st.session_state:
+    cap = open_cam()
+    if not cap:
+        st.error("Camera open failed. Close other apps.")
+        st.session_state.run = False
+    else:
+        st.session_state.cap = cap
+        st.session_state.logged_names = set()  # <- new run, clear who has been logged
 
-# --- LIVE VIDEO FROM BROWSER (WebRTC) ---
-import av  # required by streamlit-webrtc
+while st.session_state.get("run", False):
+    cap = st.session_state.cap
+    ok, frame = cap.read()
+    if not ok:
+        st.warning("Failed to read frame.")
+        break
 
+    # Mirror (selfie)
+    frame = cv2.flip(frame, 1)
+    h, w = frame.shape[:2]
 
-class FaceTransformer(VideoTransformerBase):
-    def __init__(self):
-        self.det = DET  # your cached YOLO
-        self.direction = direction  # IN / OUT from your radio
+    # --- decide if we run YOLO this frame ---
+    frame_i = (frame_i + 1) % skip_mod
+    run_det = (frame_i == 0)
 
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")  # BGR
-        h, w = img.shape[:2]
+    if run_det:
+        # Higher recall for multiple/smaller faces
+        res = DET(
+            frame,
+            conf=0.20,        # lower conf → more boxes found
+            iou=0.70,         # keep more overlapping faces
+            imgsz=960,        # bigger net input → small faces show up
+            max_det=50,       # allow many faces
+            verbose=False
+        )[0]
+        last_results = res.boxes if (res is not None and res.boxes is not None) else None
 
-        # YOLO detect
-        res = self.det(img, conf=0.20, iou=0.70, imgsz=960, max_det=50, verbose=False)[0]
-        boxes = res.boxes if (res is not None and res.boxes is not None) else None
+    # --- draw & recognize using the most recent detections ---
+    if last_results is not None:
+        # IMPORTANT: don’t zip with conf if shapes ever mismatch; iterate by index
+        xyxy = last_results.xyxy.cpu().numpy()
+        confs = last_results.conf.cpu().numpy()
+        for b in range(len(xyxy)):
+            x1, y1, x2, y2 = xyxy[b].astype(int)
+            x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
 
-        if boxes is not None:
-            xyxy = boxes.xyxy.cpu().numpy()
-            for b in range(len(xyxy)):
-                x1, y1, x2, y2 = xyxy[b].astype(int)
-                x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
-                if (x2 - x1) < 40 or (y2 - y1) < 40:
-                    continue
+            bw, bh = x2 - x1, y2 - y1
+            if bw < 40 or bh < 40:   # ↓ smaller than your old MIN_BOX=60
+                continue
 
-                face = img[y1:y2, x1:x2]
-                if face.size == 0:
-                    continue
+            face_bgr = frame[y1:y2, x1:x2]
+            if face_bgr.size == 0: 
+                continue
 
-                face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-                face_rgb = center_square(face_rgb)
+            face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+            # keep/remove to match how you built gallery_arcface.npz
+            face_rgb = center_square(face_rgb)
 
-                # ArcFace -> kNN
-                v = embed_rgb_arcface(face_rgb)
-                name, top1 = classify_knn(v)
+            v = embed_rgb_arcface(face_rgb)
+            name, top1 = classify_knn(v)
 
-                # Attendance log (once per activation)
-                if name != "Unknown" and should_log(name):
-                    st.session_state.logs.append({
-                        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
-                        "name": name,
-                        "direction": self.direction,
-                        "event_name": st.session_state.event_name
-                    })
+            # ---- Attendance logging (only known faces, once per activation) ----
+            if name != "Unknown" and should_log(name):
+                st.session_state.logs.append({
+                    "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+                    "name": name,
+                    "direction": direction,
+                    "event_name": st.session_state.event_name
+                })
 
-                # Draw
-                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
-                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-                label = f"{name} {top1:.2f}"
-                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-                cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
-                cv2.putText(img, label, (x1 + 4, y1 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = f"{name} {top1:.2f}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+            cv2.rectangle(frame, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
+            cv2.putText(frame, label, (x1 + 4, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-        return img
-
-# Start only when your toggle is ON
-if WEBRTC_OK and st.session_state.get("run", False):
-    webrtc_streamer(
-        key="attendance-webrtc",
-        mode=WebRtcMode.SENDRECV,
-        video_transformer_factory=FaceTransformer,
-        media_stream_constraints={"video": True, "audio": False},
-    )
-else:
-    if not WEBRTC_OK:
-        st.warning("Live video packages still installing or missing.")
-
+    # Stream to UI (JPEG)
+    _, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    frame_ph.image(jpg.tobytes(), channels="BGR", output_format="JPEG", use_container_width=True)
+    time.sleep(0.001)
 
 
 # ====== ATTENDANCE LOGS (shown when camera loop stops) ======
@@ -330,4 +323,9 @@ else:
 #     
 #     # Tiny sleep to prevent UI freeze
 #     time.sleep(0.001)
-
+    
+    
+if not st.session_state.get("run", False) and "cap" in st.session_state:
+    try: st.session_state.cap.release()
+    except: pass
+    st.session_state.pop("cap", None)
