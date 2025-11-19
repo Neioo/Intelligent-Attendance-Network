@@ -12,9 +12,10 @@ deepface
 # YOLO
 ultralytics
 
-pillow==10.3.0
-scipy==1.14.1
+pillow
+scipy
 
 torch
 torchvision
+
 
