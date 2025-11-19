@@ -1,3 +1,7 @@
+# --- MUST BE THE FIRST LINE ---
+import cv2
+# ------------------------------
+
 import threading
 import queue
 import datetime as dt
@@ -234,3 +238,4 @@ if st.session_state.logs:
     if ctx.state.playing:
         time.sleep(1) 
         st.rerun()
+
