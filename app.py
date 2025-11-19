@@ -242,7 +242,7 @@ class FaceTransformer(VideoTransformerBase):
         return img
 
 # Start only when your toggle is ON
-if st.session_state.get("run", False):
+if WEBRTC_OK and st.session_state.get("run", False):
     webrtc_streamer(
         key="attendance-webrtc",
         mode=WebRtcMode.SENDRECV,
@@ -250,7 +250,9 @@ if st.session_state.get("run", False):
         media_stream_constraints={"video": True, "audio": False},
     )
 else:
-    st.info("Toggle **Start camera** to begin the live stream.")
+    if not WEBRTC_OK:
+        st.warning("Live video packages still installing or missing.")
+
 
 
 # ====== ATTENDANCE LOGS (shown when camera loop stops) ======
