@@ -1,14 +1,10 @@
 streamlit
 streamlit-webrtc
-# Pin NumPy to the golden version for ML
 numpy==1.26.4
-# Use slightly older, stable Torch
 torch==2.2.2
 torchvision==0.17.2
-# Use stable CPU TensorFlow
 tensorflow-cpu==2.15.0
 tf-keras==2.15.0
-# CV tools
 opencv-python-headless
 ultralytics==8.1.0
 deepface
