@@ -1,12 +1,16 @@
 streamlit
 streamlit-webrtc
-# CRITICAL: NumPy 2.x causes the Segmentation Fault. We must force v1.
-numpy<2.0.0
-# CRITICAL: Use headless only.
+# Pin NumPy to the golden version for ML
+numpy==1.26.4
+# Use slightly older, stable Torch
+torch==2.2.2
+torchvision==0.17.2
+# Use stable CPU TensorFlow
+tensorflow-cpu==2.15.0
+tf-keras==2.15.0
+# CV tools
 opencv-python-headless
-ultralytics
+ultralytics==8.1.0
 deepface
 pandas
 av
-# Optional: explicitly pin tf-keras to avoid mismatches if DeepFace acts up
-tf-keras
