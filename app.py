@@ -250,18 +250,17 @@ if st.session_state.run:
         ctx.video_processor.direction = direction
 
 # ====== DRAIN QUEUE → APPLY SAME LOGGING LOGIC AS REFERENCE ======
-if ctx is not None and ctx.video_processor is not None:
-    q = ctx.video_processor.log_queue
-    while not q.empty():
-        try:
+if ctx is not None:
+    vp = ctx.video_processor
+
+    if vp is not None:
+        q = vp.log_queue
+        while not q.empty():
             data = q.get_nowait()
-        except queue.Empty:
-            break
 
-        # same condition as reference: only log known, once per activation
-        if data["name"] != "Unknown" and should_log(data["name"]):
-            st.session_state.logs.append(data)
-
+            if data["name"] != "Unknown" and should_log(data["name"]):
+                st.session_state.logs.append(data)
+                
     # keep UI updating while camera is playing
     if ctx.state.playing:
         time.sleep(1)
@@ -283,3 +282,4 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
