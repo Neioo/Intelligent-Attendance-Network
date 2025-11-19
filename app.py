@@ -20,8 +20,7 @@ ROOT = Path(__file__).resolve().parent
 G_PATH = str(ROOT / "gallery_arcface.npz")
 
 # We will use the "Nano" version. It's smaller, faster, and easier to download on Cloud.
-YOLO_URL = "https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt"
-YOLO_WEIGHTS = str(ROOT / "yolov8n-face.pt") 
+YOLO_WEIGHTS = str(ROOT / "yolov8n-face-lindevs.pt") 
 
 # TUNING PARAMETERS
 FRAME_SKIP = 5        
@@ -288,3 +287,4 @@ else:
 if ctx.state.playing:
     time.sleep(REFRESH_RATE)
     st.rerun()
+
