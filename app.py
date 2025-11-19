@@ -21,13 +21,13 @@ G_PATH = str(ROOT / "gallery_arcface.npz")
 
 # TUNING PARAMETERS
 PAD = 0.0
-FRAME_SKIP = 5  # Process 1 out of every 5 frames
-GRACE_PERIOD = 4 # Keep drawing box for 4 frames if detection flickers
+FRAME_SKIP = 5   # 1 out of 5 frames
+GRACE_PERIOD = 4 # Flicker reduction
 K = 5
 SIM_THRESH = 0.40
 MARGIN = 0.06
 CLASS_MINSUM = 0.50
-LOG_COOLDOWN = 10.0 # Seconds before logging the same person again
+LOG_COOLDOWN = 10.0 # Seconds
 
 st.set_page_config(page_title="CCS Attendance", layout="centered")
 
@@ -38,7 +38,7 @@ def load_models():
 
 try:
     DET = load_models()
-    DeepFace.build_model("ArcFace") # Warmup
+    DeepFace.build_model("ArcFace")
 except Exception as e:
     st.error(f"Model loading failed: {e}")
     st.stop()
@@ -99,122 +99,109 @@ def expand(x1,y1,x2,y2,w,h,pad=PAD):
     return nx1, ny1, nx2, ny2
 
 # ====== QUEUE ======
-# Communication channel between Background Thread and Streamlit UI
 log_queue = queue.Queue()
 
 # ====== BACKGROUND VIDEO PROCESSOR ======
 class AttendanceProcessor:
     def __init__(self):
         self.frame_i = -1
-        
-        # Flicker reduction
         self.last_results = None
         self.grace_count = 0 
-        
-        # Cooldown memory (Name -> Timestamp)
         self.last_logged_time = {}
-        
-        # Settings from UI
         self.event_name = ""
         self.direction = ""
 
     def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1)
-        h, w = img.shape[:2]
+        # SAFEGUARD: Wrap in try-except to prevent thread crash
+        try:
+            img = frame.to_ndarray(format="bgr24")
+            img = cv2.flip(img, 1)
+            h, w = img.shape[:2]
 
-        # 1. Cadence Control
-        self.frame_i = (self.frame_i + 1) % (FRAME_SKIP + 1)
-        run_det = (self.frame_i == 0)
+            # 1. Cadence Control
+            self.frame_i = (self.frame_i + 1) % (FRAME_SKIP + 1)
+            run_det = (self.frame_i == 0)
 
-        # 2. Detection Logic
-        if run_det:
-            # Run YOLO
-            res = DET(img, conf=0.4, iou=0.5, imgsz=320, max_det=5, verbose=False)[0]
-            
-            # Flicker Logic: If we found faces, update results and reset grace period
-            if res.boxes is not None and len(res.boxes) > 0:
-                self.last_results = res.boxes
-                self.grace_count = GRACE_PERIOD
-            else:
-                # If no faces found, decrease grace count
-                self.grace_count -= 1
-
-        # 3. Drawing Logic (Runs every frame)
-        # Only draw if we have results AND we are within grace period
-        if self.last_results is not None and self.grace_count > 0:
-            
-            xyxy = self.last_results.xyxy.cpu().numpy()
-            
-            for box in xyxy:
-                x1, y1, x2, y2 = box.astype(int)
-                x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
-
-                if (x2 - x1) < 50 or (y2 - y1) < 50: continue
-
-                # Draw Face Box
-                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-                # 4. Recognition (Only runs on the specific detection frame to save CPU)
-                if run_det:
-                    face_bgr = img[y1:y2, x1:x2]
-                    if face_bgr.size > 0:
-                        face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-                        
-                        # Center Crop logic from your original code
-                        ch, cw = face_rgb.shape[:2]
-                        s = min(ch, cw)
-                        y0, x0 = (ch-s)//2, (cw-s)//2
-                        face_rgb = face_rgb[y0:y0+s, x0:x0+s]
-
-                        v = embed_rgb_arcface(face_rgb)
-                        name, conf = classify_knn(v)
-
-                        # 5. Smart Logging (Cooldown Logic)
-                        if name != "Unknown":
-                            now = time.time()
-                            last_time = self.last_logged_time.get(name, 0)
-                            
-                            if (now - last_time) > LOG_COOLDOWN:
-                                self.last_logged_time[name] = now
-                                # Send to UI
-                                log_queue.put({
-                                    "timestamp": dt.datetime.now().strftime("%H:%M:%S"),
-                                    "name": name,
-                                    "direction": self.direction,
-                                    "event_name": self.event_name
-                                })
-
-                        label = f"{name} {conf:.2f}"
-                        cv2.putText(img, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+            # 2. Detection Logic
+            if run_det:
+                res = DET(img, conf=0.4, iou=0.5, imgsz=320, max_det=5, verbose=False)[0]
+                
+                if res.boxes is not None and len(res.boxes) > 0:
+                    self.last_results = res.boxes
+                    self.grace_count = GRACE_PERIOD
                 else:
-                    # If we are skipping frames, just draw "Scanning..." or the last known state
-                    # For simplicity, we won't redraw the text to avoid variable issues, 
-                    # or you could cache the text labels too. 
-                    pass
+                    self.grace_count -= 1
 
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+            # 3. Drawing Logic
+            if self.last_results is not None and self.grace_count > 0:
+                xyxy = self.last_results.xyxy.cpu().numpy()
+                
+                for box in xyxy:
+                    x1, y1, x2, y2 = box.astype(int)
+                    x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
+
+                    if (x2 - x1) < 50 or (y2 - y1) < 50: continue
+
+                    # Draw Box
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+                    # 4. Recognition
+                    if run_det:
+                        face_bgr = img[y1:y2, x1:x2]
+                        if face_bgr.size > 0:
+                            face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+                            
+                            # Center Crop
+                            ch, cw = face_rgb.shape[:2]
+                            s = min(ch, cw)
+                            y0, x0 = (ch-s)//2, (cw-s)//2
+                            face_rgb = face_rgb[y0:y0+s, x0:x0+s]
+
+                            v = embed_rgb_arcface(face_rgb)
+                            name, conf = classify_knn(v)
+
+                            # 5. Smart Logging (Cooldown)
+                            if name != "Unknown":
+                                now = time.time()
+                                last_time = self.last_logged_time.get(name, 0)
+                                
+                                if (now - last_time) > LOG_COOLDOWN:
+                                    self.last_logged_time[name] = now
+                                    log_queue.put({
+                                        "timestamp": dt.datetime.now().strftime("%H:%M:%S"),
+                                        "name": name,
+                                        "direction": self.direction,
+                                        "event_name": self.event_name
+                                    })
+
+                            label = f"{name} {conf:.2f}"
+                            cv2.putText(img, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+        
+        except Exception as e:
+            # Log error to console but don't crash stream
+            print(f"Error in recv: {e}")
+            return frame
 
 
 # ====== UI LAYOUT ======
 st.title("🎥 CCS Events Attendance Checker")
 
-# Initialize Session State
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-# Input Fields (Centered)
+# Input Fields
 event_name_input = st.text_input("Event name:", placeholder="e.g., CS Orientation 2025", key="evt")
 direction_input = st.radio("Current scan mode:", ["IN", "OUT"], horizontal=True, key="dir")
 
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    # WebRTC Streamer
     rtc_configuration = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
     
     ctx = webrtc_streamer(
-        key="attendance-hybrid",
+        key="attendance-hybrid-fixed",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=rtc_configuration,
         video_processor_factory=AttendanceProcessor,
@@ -222,7 +209,6 @@ with col1:
         async_processing=True
     )
     
-    # Send UI inputs to the background thread
     if ctx.video_processor:
         ctx.video_processor.event_name = event_name_input
         ctx.video_processor.direction = direction_input
@@ -232,18 +218,19 @@ with col2:
         st.session_state.logs = []
         st.success("Cleared.")
 
-# ====== LOG DRAINING LOGIC ======
-# Pull data from the background queue into the main thread
+# ====== LOG DRAINING (FIXED) ======
+new_data_found = False
+
 while not log_queue.empty():
     try:
         data = log_queue.get_nowait()
         st.session_state.logs.append(data)
+        new_data_found = True
     except:
         break
 
-# Auto-refresh to show new logs
-if ctx.state.playing:
-    time.sleep(1)
+# ONLY RERUN IF NEW DATA FOUND (Prevents Death Loop)
+if new_data_found:
     st.rerun()
 
 # ====== TABLE DISPLAY ======
@@ -251,7 +238,6 @@ st.subheader("Attendance logs")
 
 if st.session_state.logs:
     df = pd.DataFrame(st.session_state.logs)
-    # Show newest logs at the top
     st.dataframe(df.iloc[::-1], use_container_width=True)
 
     csv = df.to_csv(index=False).encode("utf-8")
