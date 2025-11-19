@@ -1,27 +1,16 @@
-# tools
 pkg-config
 build-essential
-
-# ffmpeg runtime (keep these if you already had them)
-ffmpeg
-libgl1
-libglib2.0-0
-libsm6
-libxext6
-libxrender1
-
-# ffmpeg/codec dev headers required by PyAV
 libavcodec-dev
 libavformat-dev
 libavdevice-dev
 libavutil-dev
 libswscale-dev
 libswresample-dev
-
-# WebRTC codecs (runtime + dev)
 libopus0
-libopus-dev
 libsrtp2-1
-libsrtp2-dev
 libvpx7
-libvpx-dev
+libgl1
+libglib2.0-0
+libsm6
+libxext6
+libxrender1
