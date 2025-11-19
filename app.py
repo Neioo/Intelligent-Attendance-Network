@@ -23,6 +23,15 @@ MARGIN = 0.06
 CLASS_MINSUM = 0.50
 
 st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
+
+try:
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+    import av
+    WEBRTC_OK = True
+except Exception as e:
+    WEBRTC_OK = False
+    st.info("WebRTC deps not ready yet. After the build completes, click Rerun.")
+
 st.title("🎥 CCS Events Attendance Checker")
 
 # ====== LOAD GALLERY ======
@@ -225,3 +234,4 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
