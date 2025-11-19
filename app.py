@@ -7,7 +7,6 @@ import pandas as pd
 from ultralytics import YOLO
 from deepface import DeepFace
 from pathlib import Path
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
 
 ROOT = Path(__file__).resolve().parent
 YOLO_WEIGHTS = str(ROOT / "yolov8s-face-lindevs.pt")
@@ -210,13 +209,17 @@ if st.button("Reset logs"):
     st.success("Attendance logs reset.")
 
 # WebRTC Streamer
-webrtc_streamer(
-    key="face-recognition",
-    mode=WebRtcMode.SENDRECV,
-    video_transformer_factory=FaceRecognitionTransformer,
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
-)
+if WEBRTC_OK:
+    webrtc_streamer(
+        key="face-recognition",
+        mode=WebRtcMode.SENDRECV,
+        video_transformer_factory=FaceRecognitionTransformer,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+else:
+    st.warning("Live video is unavailable until WebRTC deps finish installing. Click **Rerun** after the build.")
+
 
 # ====== ATTENDANCE LOGS ======
 st.subheader("Attendance logs")
@@ -234,4 +237,5 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
