@@ -109,73 +109,9 @@ def should_log(name: str) -> bool:
     return True
 
 # ====== VIDEO TRANSFORMER ======
-class FaceRecognitionTransformer(VideoTransformerBase):
-    def __init__(self):
-        self.frame_i = -1
-        self.last_results = None
-
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        
-        # Mirror for selfie view
-        img = cv2.flip(img, 1)
-        h, w = img.shape[:2]
-
-        # Frame skipping
-        self.frame_i = (self.frame_i + 1) % skip_mod
-        run_det = (self.frame_i == 0)
-
-        if run_det:
-            res = DET(
-                img,
-                conf=0.20,
-                iou=0.70,
-                imgsz=960,
-                max_det=50,
-                verbose=False
-            )[0]
-            self.last_results = res.boxes if (res is not None and res.boxes is not None) else None
-
-        # Process detections
-        if self.last_results is not None:
-            xyxy = self.last_results.xyxy.cpu().numpy()
-            
-            for b in range(len(xyxy)):
-                x1, y1, x2, y2 = xyxy[b].astype(int)
-                x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
-
-                bw, bh = x2 - x1, y2 - y1
-                if bw < 40 or bh < 40:
-                    continue
-
-                face_bgr = img[y1:y2, x1:x2]
-                if face_bgr.size == 0:
-                    continue
-
-                face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-                face_rgb = center_square(face_rgb)
-
-                v = embed_rgb_arcface(face_rgb)
-                name, top1 = classify_knn(v)
-
-                # Log attendance
-                if name != "Unknown" and should_log(name):
-                    st.session_state.logs.append({
-                        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
-                        "name": name,
-                        "direction": st.session_state.direction,
-                        "event_name": st.session_state.event_name
-                    })
-
-                # Draw
-                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
-                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-                label = f"{name} {top1:.2f}"
-                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-                cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
-                cv2.putText(img, label, (x1 + 4, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-        return img
+if WEBRTC_OK:
+    class FaceRecognitionTransformer(VideoTransformerBase):
+        ...
 
 # ====== UI ======
 if "logs" not in st.session_state:
@@ -237,5 +173,6 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
 
