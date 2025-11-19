@@ -1,8 +1,10 @@
 # Core dependencies
 streamlit==1.51.0
 numpy==1.26.4
-opencv-python-headless==4.8.1.78
 pandas==2.2.2
+
+# CRITICAL: Install headless opencv FIRST to prevent conflicts
+opencv-python-headless==4.10.0.84
 
 # Face recognition
 deepface==0.0.93
@@ -10,8 +12,8 @@ deepface==0.0.93
 # YOLO
 ultralytics==8.3.228
 
-# Supporting libraries (auto-installed by above but pinned for stability)
+# Supporting libraries
 pillow==10.3.0
-torch==2.5.1
-torchvision==0.20.1
 scipy==1.14.1
+torch
+torchvision
