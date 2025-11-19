@@ -1,7 +1,7 @@
 # Core dependencies
 streamlit==1.51.0
 numpy==1.26.4
-opencv-python==4.8.1.78
+opencv-python-headless==4.8.1.78
 pandas==2.2.2
 
 # Face recognition
@@ -12,6 +12,6 @@ ultralytics==8.3.228
 
 # Supporting libraries (auto-installed by above but pinned for stability)
 pillow==10.3.0
-torch==2.9.1
-torchvision==0.24.1
-scipy==1.15.3
+torch==2.5.1
+torchvision==0.20.1
+scipy==1.14.1
