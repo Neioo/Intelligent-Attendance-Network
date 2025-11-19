@@ -1,11 +1,12 @@
 streamlit
 streamlit-webrtc
-# CRITICAL: Force NumPy 1.x to prevent Segfaults
+# CRITICAL: NumPy 2.x causes the Segmentation Fault. We must force v1.
 numpy<2.0.0
-# CRITICAL: Use headless only. Do not list 'opencv-python' anywhere.
+# CRITICAL: Use headless only.
 opencv-python-headless
 ultralytics
 deepface
 pandas
-# Use a flexible version for av to ensure it builds
 av
+# Optional: explicitly pin tf-keras to avoid mismatches if DeepFace acts up
+tf-keras
