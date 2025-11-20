@@ -4,6 +4,7 @@ import cv2
 
 import time
 import datetime as dt
+import queue
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -29,9 +30,8 @@ SIM_THRESH   = 0.40
 MARGIN       = 0.06
 CLASS_MINSUM = 0.50
 
-# ---- Attendance logging (globals, used by background thread) ----
-ATT_LOGS   = []   # list of {timestamp, name, direction, event_name}
-ATT_LOGGED = set()  # names already logged this activation
+# ---- Attendance logging params ----
+MIN_GAP_SECONDS = 10  # (not used but kept)
 
 st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
 st.title("🎥 CCS Events Attendance Checker ")
@@ -108,13 +108,27 @@ def center_square(img):
     x0 = (w - s)//2
     return img[y0:y0+s, x0:x0+s]
 
+# ---- Attendance helper ----
+def should_log(name: str) -> bool:
+    """
+    Allow only one log per person per camera activation.
+    """
+    if name in st.session_state.logged_names:
+        return False
+    st.session_state.logged_names.add(name)
+    return True
+
 # ====== STATE INIT ======
 if "run" not in st.session_state:
     st.session_state.run = False
 if "logs" not in st.session_state:
-    st.session_state.logs = []          # mirror of ATT_LOGS for UI
+    st.session_state.logs = []          # list of {timestamp, name, direction, event_name}
+if "last_seen" not in st.session_state:
+    st.session_state.last_seen = {}     # name -> last log datetime
 if "event_name" not in st.session_state:
     st.session_state.event_name = "My Event"
+if "logged_names" not in st.session_state:
+    st.session_state.logged_names = set()  # per-activation memory of who has been logged
 if "prev_run" not in st.session_state:
     st.session_state.prev_run = False
 
@@ -132,15 +146,15 @@ direction = st.radio(
 
 st.session_state.run = st.toggle("Start camera", value=st.session_state.run)
 
-# When camera starts fresh, clear per-activation memory
+# detect new activation → reset per-run logged_names
 if st.session_state.run and not st.session_state.prev_run:
-    ATT_LOGGED.clear()
+    st.session_state.logged_names = set()
 st.session_state.prev_run = st.session_state.run
 
 if st.button("Reset logs"):
-    ATT_LOGS.clear()
-    ATT_LOGGED.clear()
     st.session_state.logs = []
+    st.session_state.last_seen = {}
+    st.session_state.logged_names = set()
     st.success("Attendance logs reset.")
 
 # ====== WEBRTC VIDEO PROCESSOR ======
@@ -150,6 +164,7 @@ class AttendanceProcessor:
         self.last_results = None
         self.event_name = ""
         self.direction = ""
+        self.log_queue = queue.Queue()
 
     def recv(self, frame):
         # full-res frame from browser
@@ -159,31 +174,31 @@ class AttendanceProcessor:
         img = cv2.flip(img, 1)
         h, w = img.shape[:2]
 
-        # smaller copy for YOLO (speed)
+        # ---- SPEED: smaller copy for YOLO ----
         det_w, det_h = 640, 360
         det_img = cv2.resize(img, (det_w, det_h))
 
+        # decide if we run YOLO this frame
         global skip_mod
         self.frame_i = (self.frame_i + 1) % skip_mod
         run_det = (self.frame_i == 0)
 
         if run_det:
-            try:
-                res = DET(
-                    det_img,
-                    conf=0.25,
-                    iou=0.45,
-                    imgsz=320,
-                    max_det=15,
-                    verbose=False,
-                )[0]
-                self.last_results = res.boxes if (res is not None and res.boxes is not None) else None
-            except Exception:
-                self.last_results = None
+            res = DET(
+                det_img,
+                conf=0.25,
+                iou=0.45,      # better multi-face separation
+                imgsz=320,     # lighter than 640/960
+                max_det=15,
+                verbose=False,
+            )[0]
+            self.last_results = res.boxes if (res is not None and res.boxes is not None) else None
 
+        # draw & recognize using the most recent detections
         if self.last_results is not None:
             xyxy = self.last_results.xyxy.cpu().numpy()
 
+            # scale boxes back to original resolution
             scale_x = w / det_w
             scale_y = h / det_h
 
@@ -205,35 +220,30 @@ class AttendanceProcessor:
                 if face_bgr.size == 0:
                     continue
 
-                name = "Unknown"
-                top1 = 0.0
+                face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+                face_rgb = center_square(face_rgb)
 
+                # only embed + classify when we actually ran YOLO
                 if run_det:
-                    try:
-                        face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-                        face_rgb = center_square(face_rgb)
+                    v = embed_rgb_arcface(face_rgb)
+                    name, top1 = classify_knn(v)
 
-                        v = embed_rgb_arcface(face_rgb)
-                        name, top1 = classify_knn(v)
-                    except Exception:
-                        name, top1 = "Unknown", 0.0
-
-                    # ---- LOGGING: store directly in globals ----
+                    # Push to queue; main thread will call should_log()
                     if name != "Unknown":
-                        global ATT_LOGS, ATT_LOGGED
-                        if name not in ATT_LOGGED:
-                            ATT_LOGGED.add(name)
-                            ATT_LOGS.append({
-                                "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
-                                "name": name,
-                                "direction": self.direction,
-                                "event_name": self.event_name,
-                            })
+                        self.log_queue.put({
+                            "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+                            "name": name,
+                            "direction": self.direction,
+                            "event_name": self.event_name,
+                        })
+                else:
+                    # on skip frames, just reuse last label visually (optional)
+                    name, top1 = "?", 0.0
 
-                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+                color = (0, 255, 0) if name not in ["Unknown", "?"] else (0, 0, 255)
                 cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
 
-                if run_det:
+                if name not in ["?"]:
                     label = f"{name} {top1:.2f}"
                     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
                     cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
@@ -247,9 +257,10 @@ class AttendanceProcessor:
                         2,
                     )
 
+        # IMPORTANT: return full-res img, not the downscaled detection image
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# ====== START WEBRTC CAMERA ======
+# ====== START WEBRTC CAMERA (Cloud-friendly) ======
 ctx = None
 if st.session_state.run:
     rtc_configuration = RTCConfiguration(
@@ -275,10 +286,23 @@ if st.session_state.run:
         ctx.video_processor.event_name = st.session_state.event_name
         ctx.video_processor.direction = direction
 
-# Mirror globals into session_state for the UI
-st.session_state.logs = ATT_LOGS.copy()
+# ====== DRAIN QUEUE → SAME LOGGING PATTERN AS WORKING CODE ======
+if ctx is not None:
+    vp = ctx.video_processor
 
-# ====== ATTENDANCE LOGS ======
+    if vp is not None:
+        q = vp.log_queue
+        while not q.empty():
+            data = q.get_nowait()
+            if data["name"] != "Unknown" and should_log(data["name"]):
+                st.session_state.logs.append(data)
+
+    # keep UI updating while camera is running
+    if ctx.state.playing:
+        time.sleep(1)
+        st.rerun()
+
+# ====== ATTENDANCE LOGS (same table & CSV) ======
 st.subheader("Attendance logs")
 
 if st.session_state.logs:
