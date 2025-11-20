@@ -21,7 +21,7 @@ PAD        = 0.0
 MIN_BOX    = 60
 
 # Run detector every N frames (0 = every frame)
-FRAME_SKIP = 4        # try 2; increase if CPU is slow
+FRAME_SKIP = 4        # YOLO every 5th frame (faster, still OK)
 skip_mod   = FRAME_SKIP + 1
 
 # ---- ArcFace k-NN params ----
@@ -31,7 +31,7 @@ MARGIN       = 0.06
 CLASS_MINSUM = 0.50
 
 # ---- Attendance logging params ----
-MIN_GAP_SECONDS = 10  # minimum seconds between logs for same person (no longer used)
+MIN_GAP_SECONDS = 10  # (not used but kept)
 
 st.set_page_config(page_title="Face ID (ArcFace gallery k-NN)", layout="centered")
 st.title("🎥 CCS Events Attendance Checker ")
@@ -124,7 +124,7 @@ if "run" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []          # list of {timestamp, name, direction, event_name}
 if "last_seen" not in st.session_state:
-    st.session_state.last_seen = {}     # name -> last log datetime (kept for compatibility)
+    st.session_state.last_seen = {}     # name -> last log datetime
 if "event_name" not in st.session_state:
     st.session_state.event_name = "My Event"
 if "logged_names" not in st.session_state:
@@ -132,7 +132,7 @@ if "logged_names" not in st.session_state:
 if "prev_run" not in st.session_state:
     st.session_state.prev_run = False
 
-# ====== UI (same as reference) ======
+# ====== UI ======
 st.text_input(
     "Event name:",
     key="event_name",
@@ -167,67 +167,99 @@ class AttendanceProcessor:
         self.log_queue = queue.Queue()
 
     def recv(self, frame):
+        # full-res frame from browser
         img = frame.to_ndarray(format="bgr24")
 
-        # Mirror (selfie) – same as reference
+        # Mirror (selfie)
         img = cv2.flip(img, 1)
         h, w = img.shape[:2]
 
-        # decide if we run YOLO this frame (same logic as reference)
+        # -------- SPEED TRICK: smaller copy for YOLO ----------
+        det_w, det_h = 640, 360
+        det_img = cv2.resize(img, (det_w, det_h))
+
+        # decide if we run YOLO this frame
+        global skip_mod
         self.frame_i = (self.frame_i + 1) % skip_mod
         run_det = (self.frame_i == 0)
 
         if run_det:
             res = DET(
-                img,
-                conf=0.25,        # lower conf → more boxes found
-                iou=0.40,         # keep more overlapping faces
-                imgsz=640,        # bigger net input → small faces show up
-                max_det=10,       # allow many faces
+                det_img,
+                conf=0.25,
+                iou=0.45,      # better multi-face separation
+                imgsz=320,     # MUCH lighter than 640/960
+                max_det=15,
                 verbose=False,
             )[0]
             self.last_results = res.boxes if (res is not None and res.boxes is not None) else None
 
-        # draw & recognize using the most recent detections (same as reference)
+        # draw & recognize using the most recent detections
         if self.last_results is not None:
             xyxy = self.last_results.xyxy.cpu().numpy()
-            confs = self.last_results.conf.cpu().numpy()
+
+            # scale boxes back to original resolution
+            scale_x = w / det_w
+            scale_y = h / det_h
+
             for b in range(len(xyxy)):
-                x1, y1, x2, y2 = xyxy[b].astype(int)
+                x1d, y1d, x2d, y2d = xyxy[b].astype(int)
+
+                x1 = int(x1d * scale_x)
+                x2 = int(x2d * scale_x)
+                y1 = int(y1d * scale_y)
+                y2 = int(y2d * scale_y)
+
                 x1, y1, x2, y2 = expand(x1, y1, x2, y2, w, h, PAD)
 
                 bw, bh = x2 - x1, y2 - y1
-                if bw < 40 or bh < 40:   # smaller than old MIN_BOX=60
+                if bw < 40 or bh < 40:
                     continue
 
                 face_bgr = img[y1:y2, x1:x2]
                 if face_bgr.size == 0:
                     continue
 
-                face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-                face_rgb = center_square(face_rgb)
-                
+                # default values to avoid undefined-variable bugs
+                name = "Unknown"
+                top1 = 0.0
+
+                # only run costly ArcFace on frames we actually ran YOLO
                 if run_det:
+                    face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+                    face_rgb = center_square(face_rgb)
+
                     v = embed_rgb_arcface(face_rgb)
                     name, top1 = classify_knn(v)
 
-                # Push to queue; main thread will call should_log() exactly like reference
-                if name != "Unknown":
-                    self.log_queue.put({
-                        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
-                        "name": name,
-                        "direction": self.direction,
-                        "event_name": self.event_name,
-                    })
+                    # queue for logging (main thread will do should_log)
+                    if name != "Unknown":
+                        self.log_queue.put({
+                            "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+                            "name": name,
+                            "direction": self.direction,
+                            "event_name": self.event_name,
+                        })
 
+                # draw boxes every frame; labels only when we actually know name
                 color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
                 cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-                label = f"{name} {top1:.2f}"
-                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-                cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
-                cv2.putText(img, label, (x1 + 4, y1 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
+                if run_det:  # only label on detection frames to avoid nonsense
+                    label = f"{name} {top1:.2f}"
+                    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                    cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 8, y1), (0, 0, 0), -1)
+                    cv2.putText(
+                        img,
+                        label,
+                        (x1 + 4, y1 - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (255, 255, 255),
+                        2,
+                    )
+
+        # IMPORTANT: return full-res img, not the downscaled detection image
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # ====== START WEBRTC CAMERA (Cloud-friendly) ======
@@ -242,7 +274,13 @@ if st.session_state.run:
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=rtc_configuration,
         video_processor_factory=AttendanceProcessor,
-        media_stream_constraints={"video": True, "audio": False},
+        media_stream_constraints={
+            "video": {
+                "width": 1280,
+                "height": 720,
+            },
+            "audio": False,
+        },
         async_processing=True,
     )
 
@@ -251,21 +289,14 @@ if st.session_state.run:
         ctx.video_processor.direction = direction
 
 # ====== DRAIN QUEUE → APPLY SAME LOGGING LOGIC AS REFERENCE ======
-if ctx is not None:
-    vp = ctx.video_processor
+if ctx is not None and ctx.video_processor is not None:
+    q = ctx.video_processor.log_queue
+    while not q.empty():
+        data = q.get_nowait()
+        if data["name"] != "Unknown" and should_log(data["name"]):
+            st.session_state.logs.append(data)
 
-    if vp is not None:
-        q = vp.log_queue
-        while not q.empty():
-            data = q.get_nowait()
-
-            if data["name"] != "Unknown" and should_log(data["name"]):
-                st.session_state.logs.append(data)
-                
-    # keep UI updating while camera is playing
-    if ctx.state.playing:
-        time.sleep(1)
-        st.rerun()
+# NOTE: no st.rerun() here → avoids freezing and crazy reloads
 
 # ====== ATTENDANCE LOGS (same table & CSV) ======
 st.subheader("Attendance logs")
@@ -283,7 +314,3 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
-
-
-
-
