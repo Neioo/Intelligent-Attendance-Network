@@ -180,7 +180,7 @@ class AttendanceProcessor:
         if run_det:
             res = DET(
                 img,
-                conf=0.20,        # lower conf → more boxes found
+                conf=0.25,        # lower conf → more boxes found
                 iou=0.40,         # keep more overlapping faces
                 imgsz=640,        # bigger net input → small faces show up
                 max_det=10,       # allow many faces
@@ -206,9 +206,10 @@ class AttendanceProcessor:
 
                 face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
                 face_rgb = center_square(face_rgb)
-
-                v = embed_rgb_arcface(face_rgb)
-                name, top1 = classify_knn(v)
+                
+                if run_det:
+                    v = embed_rgb_arcface(face_rgb)
+                    name, top1 = classify_knn(v)
 
                 # Push to queue; main thread will call should_log() exactly like reference
                 if name != "Unknown":
@@ -282,6 +283,7 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
 
 
