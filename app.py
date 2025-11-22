@@ -297,9 +297,16 @@ if ctx is not None:
             if data["name"] != "Unknown" and should_log(data["name"]):
                 st.session_state.logs.append(data)
 
-    if st.session_state.run and ctx.state == WebRtcState.PLAYING:
+    playing = False
+    try:
+        playing = ctx.state.playing
+    except:
+        playing = False
+
+    if st.session_state.run and playing:
         time.sleep(1)
         st.rerun()
+
 
 
 # ====== ATTENDANCE LOGS (same table & CSV) ======
@@ -318,4 +325,5 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
