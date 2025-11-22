@@ -14,6 +14,28 @@ from deepface import DeepFace
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
 
+from streamlit_webrtc.shutdown import SessionShutdownObserver
+
+# Monkey-patch to avoid AttributeError: 'NoneType' object has no attribute 'is_alive'
+_original_stop = SessionShutdownObserver.stop
+
+def _safe_stop(self):
+    t = getattr(self, "_polling_thread", None)
+    # If there was never a polling thread, just return quietly
+    if t is None:
+        self._polling_thread = None
+        return
+    try:
+        if t.is_alive():
+            self._stop_flag.set()
+            t.join()
+    except Exception:
+        # swallow any shutdown-time errors, better than killing the whole app
+        pass
+    self._polling_thread = None
+
+SessionShutdownObserver.stop = _safe_stop
+
 ROOT = Path(__file__).resolve().parent
 YOLO_WEIGHTS = str(ROOT / "yolov8s-face-lindevs.pt")
 
@@ -325,6 +347,7 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
 
 
