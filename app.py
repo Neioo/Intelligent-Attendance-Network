@@ -11,7 +11,7 @@ import streamlit as st
 from pathlib import Path
 from ultralytics import YOLO
 from deepface import DeepFace
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, WebRtcState
 import av
 
 ROOT = Path(__file__).resolve().parent
@@ -297,10 +297,10 @@ if ctx is not None:
             if data["name"] != "Unknown" and should_log(data["name"]):
                 st.session_state.logs.append(data)
 
-    # keep UI updating while camera is running
-    if ctx.state.playing:
+    if st.session_state.run and ctx.state == WebRtcState.PLAYING:
         time.sleep(1)
         st.rerun()
+
 
 # ====== ATTENDANCE LOGS (same table & CSV) ======
 st.subheader("Attendance logs")
@@ -318,3 +318,4 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
