@@ -11,7 +11,7 @@ import streamlit as st
 from pathlib import Path
 from ultralytics import YOLO
 from deepface import DeepFace
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, WebRtcState
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
 
 ROOT = Path(__file__).resolve().parent
@@ -325,5 +325,6 @@ if st.session_state.logs:
     )
 else:
     st.info("No attendance logs yet. Start the camera to begin logging.")
+
 
 
